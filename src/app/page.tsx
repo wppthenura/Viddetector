@@ -107,18 +107,26 @@ export default function Home() {
       <div className="flex justify-between items-center p-6 shadow-md backdrop-blur-xl">
         <h1 className="text-4xl font-bold drop-shadow-lg">YouTube VPH Monitor</h1>
         <div className="flex gap-4 items-center">
-          <button
-            onClick={fetchVideos}
-            className="px-5 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-md"
-          >
-            Refresh
-          </button>
+          <div className="flex gap-4 items-center">
+  <a
+    href="/music-detector"
+    className="px-5 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 shadow-md"
+  >
+    Music Detector
+  </a>
+  <button
+    onClick={fetchVideos}
+    className="px-5 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-md"
+  >
+    Refresh
+  </button>
           <button
             onClick={() => setDarkMode(!darkMode)}
             className="px-4 py-2 rounded-xl bg-gray-800 text-white hover:bg-gray-700 shadow-md"
           >
             {darkMode ? '☀ Light Mode' : '🌙 Dark Mode'}
           </button>
+          </div>
         </div>
       </div>
 
@@ -162,7 +170,7 @@ export default function Home() {
                   <p className="text-xs text-gray-400 mt-1">{percent}% Value score</p>
                 </div>
                 <div className="mt-3 flex items-center gap-2">
-                  <p className="text-sm text-blue-400 select-text cursor-pointer">ID: {video.videoId}</p>
+                  <p className="text-sm text-blue-400 select-text cursor-pointer">VID ID: {video.videoId}</p>
                   <button
                     onClick={() => copyToClipboard(video.videoId)}
                     className="text-xs px-3 py-1 bg-blue-700 text-white rounded-xl hover:bg-blue-800"
