@@ -15,7 +15,6 @@ export default function MusicDetectorPage() {
     try {
       const res = await fetch(`/api/detect-music?videoId=${videoId}`);
       const data = await res.json();
-      console.log('Detection result:', data); // Debugging
       setResult(data);
     } catch (err) {
       console.error('Detection failed:', err);
@@ -46,38 +45,44 @@ export default function MusicDetectorPage() {
       </div>
 
       {result?.error && (
-        <div className="text-red-600 mt-4">Error: {result.error}</div>
+        <div className="text-red-600 mt-4">❌ {result.error}</div>
       )}
 
-      {Array.isArray(result?.metadata?.music) && result.metadata.music.length > 0 && (
+      {!result?.error && result?.songTitle && (
         <div className="mt-8 bg-white p-6 rounded shadow">
-          <h2 className="text-xl font-semibold mb-4">Detection Result</h2>
+          <h2 className="text-xl font-semibold mb-4">✅ Detection Result</h2>
           <table className="table-auto w-full text-left border">
             <thead className="bg-gray-200">
               <tr>
                 <th className="p-2 border">Video ID</th>
+                <th className="p-2 border">Channel ID</th>
+                <th className="p-2 border">Open YouTube</th>
                 <th className="p-2 border">Song Title</th>
-                <th className="p-2 border">Artist</th>
-                <th className="p-2 border">Timestamp</th>
-                <th className="p-2 border">Asset ID</th>
+                <th className="p-2 border">Song Owner</th>
               </tr>
             </thead>
             <tbody>
-              {result.metadata.music.map((music: any, index: number) => (
-                <tr key={index}>
-                  <td className="p-2 border">{videoId}</td>
-                  <td className="p-2 border">{music.title || '—'}</td>
-                  <td className="p-2 border">{music.artists?.[0]?.name || '—'}</td>
-                  <td className="p-2 border">{result.metadata.timestamp || '—'}</td>
-                  <td className="p-2 border">{music.acrid || '—'}</td>
-                </tr>
-              ))}
+              <tr>
+                <td className="p-2 border">{result.videoId}</td>
+                <td className="p-2 border">{result.channelId}</td>
+                <td className="p-2 border">
+                  <a
+                    href={result.youtubeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    Open
+                  </a>
+                </td>
+                <td className="p-2 border">{result.songTitle}</td>
+                <td className="p-2 border">{result.songOwner}</td>
+              </tr>
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Show raw response for debugging */}
       {result && (
         <pre className="mt-8 p-4 bg-gray-200 rounded text-sm overflow-x-auto whitespace-pre-wrap">
           {JSON.stringify(result, null, 2)}

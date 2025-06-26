@@ -19,49 +19,55 @@ function buildSignature(stringToSign, secret) {
     .digest('base64');
 }
 
+const execPromise = (cmd, options = {}) =>
+  new Promise((resolve, reject) => {
+    exec(cmd, { maxBuffer: 1024 * 1024 * 20, ...options }, (err, stdout, stderr) => {
+      if (err) {
+        console.error(`Command failed: ${cmd}`, stderr);
+        return reject(err);
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const videoId = searchParams.get('videoId');
 
-  const linuxUserAgent =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36";
-
-  console.log('🔐 ENV CHECK:');
-  console.log('ACR_KEY:', ACR_KEY);
-  console.log('ACR_SECRET:', ACR_SECRET);
-  console.log('ACR_HOST:', ACR_HOST);
-
   if (!videoId) {
     return NextResponse.json({ error: 'Missing videoId' }, { status: 400 });
-  }
-
-  if (!ACR_KEY || !ACR_SECRET || !ACR_HOST) {
-    return NextResponse.json(
-      { error: 'Missing ACRCloud environment variables.' },
-      { status: 500 }
-    );
   }
 
   const outputTemplate = `/tmp/audio-${videoId}.%(ext)s`;
   const finalPath = `/tmp/audio-${videoId}.mp3`;
 
   try {
-    console.log(`📥 Running yt-dlp for videoId=${videoId}`);
-    
-    const command = `yt-dlp --downloader aria2c --user-agent "${linuxUserAgent}" -f "bestaudio[ext=m4a]/bestaudio/best" --no-playlist -x --audio-format mp3 --postprocessor-args "-t 15" -o "${outputTemplate}" "https://www.youtube.com/watch?v=${videoId}"`;
+    // Step 1: Get metadata for channelId
+    const metaCmd = `yt-dlp -j --no-warnings "https://www.youtube.com/watch?v=${videoId}"`;
+    const { stdout: metaStdout } = await execPromise(metaCmd);
+    let metaJson;
+    try {
+      metaJson = JSON.parse(metaStdout);
+    } catch {
+      throw new Error("Failed to parse metadata JSON.");
+    }
+    const channelId = metaJson.channel_id || 'Unknown';
 
-    await new Promise((resolve, reject) => {
-      exec(command, (err, stdout, stderr) => {
-        console.log("yt-dlp stdout:", stdout);
-        console.error("yt-dlp stderr:", stderr);
-        if (err) return reject(err);
-        if (!existsSync(finalPath)) return reject(new Error("Audio file not created."));
-        resolve();
-      });
-    });
+    // Step 2: Download and extract audio (limit 15 sec)
+    const dlCmd = `yt-dlp -f "bestaudio[ext=m4a]/bestaudio/best" --no-playlist -x --audio-format mp3 --postprocessor-args "-t 15" -o "${outputTemplate}" "https://www.youtube.com/watch?v=${videoId}"`;
+    const { stdout: dlOut, stderr: dlErr } = await execPromise(dlCmd);
+    console.log("yt-dlp stdout:", dlOut);
+    console.error("yt-dlp stderr:", dlErr);
 
+    // Step 3: Verify audio file exists
+    if (!existsSync(finalPath)) {
+      throw new Error("Audio file not created after yt-dlp.");
+    }
+
+    // Step 4: Read audio file buffer
     const fileData = await fs.readFile(finalPath);
 
+    // Step 5: Build ACRCloud signature and form data
     const http_method = 'POST';
     const http_uri = '/v1/identify';
     const data_type = 'audio';
@@ -81,11 +87,9 @@ export async function GET(req) {
 
     const form = new FormData();
     form.append('sample', fileData, {
-  filename: 'sample.mp3',
-  knownLength: fileData.length,
-});
-
-
+      filename: 'sample.mp3',
+      knownLength: fileData.length,
+    });
     form.append('access_key', ACR_KEY);
     form.append('data_type', data_type);
     form.append('signature_version', signature_version);
@@ -95,9 +99,8 @@ export async function GET(req) {
     const getLength = promisify(form.getLength).bind(form);
     const contentLength = await getLength();
 
-    console.log('📡 Sending to ACRCloud with headers + length');
-
-    const res = await fetch(`https://${ACR_HOST}/v1/identify`, {
+    // Step 6: Send POST request to ACRCloud
+    const acrRes = await fetch(`https://${ACR_HOST}/v1/identify`, {
       method: 'POST',
       body: form,
       headers: {
@@ -106,14 +109,38 @@ export async function GET(req) {
       },
     });
 
-    const result = await res.json();
-    console.log('🎵 ACRCloud response:', result);
+    if (!acrRes.ok) {
+      throw new Error(`ACRCloud responded with status ${acrRes.status}`);
+    }
 
-    await fs.unlink(finalPath);
+    const result = await acrRes.json();
 
-    return NextResponse.json(result); 
+    // Step 7: Check for music detection results
+    const music = result?.metadata?.music?.[0];
+    if (!music) {
+      return NextResponse.json({ error: 'No music detected' }, { status: 404 });
+    }
+
+    // Return success data
+    return NextResponse.json({
+      videoId,
+      channelId,
+      youtubeLink: `https://www.youtube.com/watch?v=${videoId}`,
+      songTitle: music.title || 'Unknown',
+      songOwner: music.artists?.[0]?.name || 'Unknown',
+    });
+
   } catch (err) {
     console.error("❌ Music detection failed:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } finally {
+    // Clean up temporary audio file
+    try {
+      if (existsSync(finalPath)) {
+        await fs.unlink(finalPath);
+      }
+    } catch (cleanupErr) {
+      console.error('Failed to delete temp audio file:', cleanupErr);
+    }
   }
 }
